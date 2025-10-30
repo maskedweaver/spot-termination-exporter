@@ -2,11 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/prometheus/client_golang/prometheus"
-	log "github.com/sirupsen/logrus"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	log "github.com/sirupsen/logrus"
 )
 
 type terminationCollector struct {
@@ -29,16 +30,21 @@ type instanceEvent struct {
 	NoticeTime time.Time `json:"noticeTime"`
 }
 
-func NewTerminationCollector(metadataEndpoint, tokenEndpoint string, useIMDSv2 bool) *terminationCollector {
+func NewTerminationCollector(
+	metadataEndpoint,
+	tokenEndpoint string,
+	useIMDSv2 bool,
+	nodeLabels prometheus.Labels,
+) *terminationCollector {
 	return &terminationCollector{
 		metadataEndpoint:          metadataEndpoint,
 		tokenEndpoint:             tokenEndpoint,
 		useIMDSv2:                 useIMDSv2,
-		rebalanceIndicator:        prometheus.NewDesc("aws_instance_rebalance_recommended", "Instance rebalance is recommended", []string{"instance_id", "instance_type"}, nil),
-		rebalanceScrapeSuccessful: prometheus.NewDesc("aws_instance_metadata_service_events_available", "Metadata service events endpoint available", []string{"instance_id"}, nil),
-		scrapeSuccessful:          prometheus.NewDesc("aws_instance_metadata_service_available", "Metadata service available", []string{"instance_id"}, nil),
-		terminationIndicator:      prometheus.NewDesc("aws_instance_termination_imminent", "Instance is about to be terminated", []string{"instance_action", "instance_id", "instance_type"}, nil),
-		terminationTime:           prometheus.NewDesc("aws_instance_termination_in", "Instance will be terminated in", []string{"instance_id", "instance_type"}, nil),
+		rebalanceIndicator:        prometheus.NewDesc("aws_instance_rebalance_recommended", "Instance rebalance is recommended", []string{"instance_id", "instance_type"}, nodeLabels),
+		rebalanceScrapeSuccessful: prometheus.NewDesc("aws_instance_metadata_service_events_available", "Metadata service events endpoint available", []string{"instance_id"}, nodeLabels),
+		scrapeSuccessful:          prometheus.NewDesc("aws_instance_metadata_service_available", "Metadata service available", []string{"instance_id"}, nodeLabels),
+		terminationIndicator:      prometheus.NewDesc("aws_instance_termination_imminent", "Instance is about to be terminated", []string{"instance_action", "instance_id", "instance_type"}, nodeLabels),
+		terminationTime:           prometheus.NewDesc("aws_instance_termination_in", "Instance will be terminated in", []string{"instance_id", "instance_type"}, nodeLabels),
 	}
 }
 
@@ -80,7 +86,7 @@ func (c *terminationCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 	defer idResp.Body.Close()
-	body, _ := ioutil.ReadAll(idResp.Body)
+	body, _ := io.ReadAll(idResp.Body)
 	instanceID = string(body)
 
 	typeResp, err := c.getResponse(&client, c.metadataEndpoint+"instance-type", token)
@@ -94,7 +100,7 @@ func (c *terminationCollector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 	defer typeResp.Body.Close()
-	body, _ = ioutil.ReadAll(typeResp.Body)
+	body, _ = io.ReadAll(typeResp.Body)
 	instanceType = string(body)
 
 	resp, err := c.getResponse(&client, c.metadataEndpoint+"spot/instance-action", token)
@@ -109,7 +115,7 @@ func (c *terminationCollector) Collect(ch chan<- prometheus.Metric) {
 			ch <- prometheus.MustNewConstMetric(c.terminationIndicator, prometheus.GaugeValue, 0, "", instanceID, instanceType)
 		} else {
 			defer resp.Body.Close()
-			body, _ := ioutil.ReadAll(resp.Body)
+			body, _ := io.ReadAll(resp.Body)
 
 			var ia = instanceAction{}
 			err := json.Unmarshal(body, &ia)
@@ -122,7 +128,7 @@ func (c *terminationCollector) Collect(ch chan<- prometheus.Metric) {
 			} else {
 				log.Infof("instance-action endpoint available, termination time: %v", ia.Time)
 				ch <- prometheus.MustNewConstMetric(c.terminationIndicator, prometheus.GaugeValue, 1, ia.Action, instanceID, instanceType)
-				delta := ia.Time.Sub(time.Now())
+				delta := time.Until(ia.Time)
 				if delta.Seconds() > 0 {
 					ch <- prometheus.MustNewConstMetric(c.terminationTime, prometheus.GaugeValue, delta.Seconds(), instanceID, instanceType)
 				}
@@ -146,7 +152,7 @@ func (c *terminationCollector) Collect(ch chan<- prometheus.Metric) {
 			return
 		} else {
 			defer eventResp.Body.Close()
-			body, _ := ioutil.ReadAll(eventResp.Body)
+			body, _ := io.ReadAll(eventResp.Body)
 
 			var ie = instanceEvent{}
 			err := json.Unmarshal(body, &ie)
@@ -172,7 +178,7 @@ func (c *terminationCollector) getIMDSv2Token(client *http.Client, url string) (
 	if err != nil {
 		return "", err
 	}
-	body, err := ioutil.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}

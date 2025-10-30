@@ -29,17 +29,30 @@ var rawLevel = flag.String("log-level", "info", "log level")
 var metadataEndpoint = flag.String("metadata-endpoint", "http://169.254.169.254/latest/meta-data/", "metadata endpoint to query")
 var tokenEndpoint = flag.String("token-endpoint", "http://169.254.169.254/latest/api/token", "token endpoint to query")
 var useIMDSv2 = flag.Bool("use-imdsv2", false, "token endpoint to query")
+var attachNodeLabels = flag.Bool("attach-node-labels", false, "attach labels from node")
+var kubeconfig = flag.String("kubeconfig", "", "path to kubeconfig file")
 
 func main() {
 	log.SetLevel(logLevel)
 	log.Info("Starting spot-termination-exporter")
 
 	log.Debug("registering term exporter")
-	prometheus.MustRegister(NewTerminationCollector(*metadataEndpoint, *tokenEndpoint, *useIMDSv2))
+
+	var nodeLabels prometheus.Labels
+	if *attachNodeLabels {
+		labels, err := getNodeLabels(*kubeconfig)
+		if err != nil {
+			log.WithError(err).Error("Failed to get node labels")
+			os.Exit(1)
+		}
+		nodeLabels = labels
+	}
+
+	prometheus.MustRegister(NewTerminationCollector(*metadataEndpoint, *tokenEndpoint, *useIMDSv2, nodeLabels))
 
 	go serveMetrics()
 
-	exitChannel := make(chan os.Signal)
+	exitChannel := make(chan os.Signal, 1)
 	signal.Notify(exitChannel, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
 	exitSignal := <-exitChannel
 	log.WithFields(log.Fields{"signal": exitSignal}).Infof("Caught %s signal, exiting", exitSignal)
@@ -51,6 +64,7 @@ func serveMetrics() {
 	http.HandleFunc("/", rootHandler)
 	log.Fatal(http.ListenAndServe(*bindAddr, nil))
 }
+
 func rootHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`<html>

@@ -124,6 +124,7 @@ func (c *terminationCollector) Collect(ch chan<- prometheus.Metric) {
 			// so parse error is not fatal
 			if err != nil {
 				log.Errorf("Couldn't parse instance-action metadata: %s", err)
+				log.Printf("instanceID: %s, instanceType: %s", instanceID, instanceType)
 				ch <- prometheus.MustNewConstMetric(c.terminationIndicator, prometheus.GaugeValue, 0, "", instanceID, instanceType)
 			} else {
 				log.Infof("instance-action endpoint available, termination time: %v", ia.Time)

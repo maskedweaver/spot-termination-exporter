@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-func init() {
+func parseFlags() {
 	flag.Parse()
 
 	parsedLevel, err := log.ParseLevel(*rawLevel)
@@ -33,6 +33,7 @@ var attachNodeLabels = flag.Bool("attach-node-labels", false, "attach labels fro
 var kubeconfig = flag.String("kubeconfig", "", "path to kubeconfig file")
 
 func main() {
+	parseFlags()
 	log.SetLevel(logLevel)
 	log.Info("Starting spot-termination-exporter")
 

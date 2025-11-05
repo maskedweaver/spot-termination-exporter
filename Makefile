@@ -54,7 +54,7 @@ docker:
 
 buildx:
 	@echo ">> building docker image"
-	@docker buildx build -t "$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)" .
+	@docker buildx build --platform linux/amd64 --no-cache -t 940776968316.dkr.ecr.eu-west-1.amazonaws.com/prometheus/spot-termination-exporter:v0.3.0 --push .
 
 promu:
 	@GOOS=$(shell uname -s | tr A-Z a-z) \

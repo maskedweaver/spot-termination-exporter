@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"time"
+	"unicode"
 
 	"github.com/prometheus/client_golang/prometheus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +29,15 @@ func buildConfig(kubeconfig string) (*rest.Config, error) {
 	return clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
 		&clientcmd.ClientConfigLoadingRules{ExplicitPath: ""},
 		&clientcmd.ConfigOverrides{}).ClientConfig()
+}
+
+func sanitizeLabelName(name string) string {
+	var invalidLabelCharRE = regexp.MustCompile(`[^a-zA-Z0-9_]`)
+	sanitized := invalidLabelCharRE.ReplaceAllString(name, "_")
+	if len(sanitized) > 0 && unicode.IsDigit(rune(sanitized[0])) {
+		sanitized = "_" + sanitized
+	}
+	return sanitized
 }
 
 func getNodeLabels(kubeconfig string) (prometheus.Labels, error) {
@@ -55,5 +66,10 @@ func getNodeLabels(kubeconfig string) (prometheus.Labels, error) {
 		log.Fatalf("get node %q: %v", nodeName, err)
 	}
 
-	return node.Labels, nil
+	sanitizedLabels := make(prometheus.Labels)
+	for k, v := range node.Labels {
+		sanitizedLabels[sanitizeLabelName(k)] = v
+	}
+
+	return sanitizedLabels, nil
 }
